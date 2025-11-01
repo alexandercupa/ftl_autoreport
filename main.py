@@ -1,63 +1,49 @@
-from flask import Flask, jsonify, request
 import os
-import pandas as pd
-from dotenv import load_dotenv
+import json
+from flask import Flask, jsonify
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
+from dotenv import load_dotenv
 
-# --- STEP 1: Setup Flask ---
+# Load environment variables
+load_dotenv("id.env")
+
 app = Flask(__name__)
 
-# --- STEP 2: Load environment variables ---
-load_dotenv("id.env")
+# Build credentials dictionary from .env
+credentials_dict = {
+    "type": os.getenv("GOOGLE_TYPE"),
+    "project_id": os.getenv("GOOGLE_PROJECT_ID"),
+    "private_key_id": os.getenv("GOOGLE_PRIVATE_KEY_ID"),
+    "private_key": os.getenv("GOOGLE_PRIVATE_KEY").replace('\\n', '\n'),
+    "client_email": os.getenv("GOOGLE_CLIENT_EMAIL"),
+    "client_id": os.getenv("GOOGLE_CLIENT_ID"),
+    "auth_uri": os.getenv("GOOGLE_AUTH_URI"),
+    "token_uri": os.getenv("GOOGLE_TOKEN_URI"),
+    "auth_provider_x509_cert_url": os.getenv("GOOGLE_AUTH_PROVIDER_X509_CERT_URL"),
+    "client_x509_cert_url": os.getenv("GOOGLE_CLIENT_X509_CERT_URL"),
+    "universe_domain": os.getenv("GOOGLE_UNIVERSE_DOMAIN"),
+}
+
+# Create credentials object from JSON
+creds = service_account.Credentials.from_service_account_info(credentials_dict)
+
+# Connect to Google Sheets
+service = build('sheets', 'v4', credentials=creds)
+sheet = service.spreadsheets()
 
 SHEET_ID = os.getenv("SHEET_ID")
 SHEET_NAME = os.getenv("SHEET_NAME")
 
-SERVICE_ACCOUNT_FILE = 'credentials.json'
-SCOPES = ['https://www.googleapis.com/auth/spreadsheets.readonly']
-
-creds = service_account.Credentials.from_service_account_file(
-    SERVICE_ACCOUNT_FILE, scopes=SCOPES)
-service = build('sheets', 'v4', credentials=creds)
-sheet = service.spreadsheets()
-
-# --- STEP 3: Function to load sheet ---
-def load_sheet():
-    result = sheet.values().get(
-        spreadsheetId=SHEET_ID,
-        range=f"{SHEET_NAME}!A1:Z100"
-    ).execute()
+@app.route("/api/sales", methods=["GET"])
+def get_sales_data():
+    result = sheet.values().get(spreadsheetId=SHEET_ID, range=SHEET_NAME).execute()
     values = result.get('values', [])
-    if not values:
-        return None
-    headers = values[0]
-    data = values[1:]
-    df = pd.DataFrame(data, columns=headers)
-    return df
+    return jsonify(values)
 
-# --- STEP 4: Routes ---
-@app.route("/")
+@app.route("/", methods=["GET"])
 def home():
-    return jsonify({"status": "ok", "message": "FTL Dashboard API is running."})
+    return jsonify({"status": "Backend Running", "sheet": SHEET_NAME})
 
-@app.route("/sales", methods=["GET"])
-def get_all_sales():
-    df = load_sheet()
-    if df is None:
-        return jsonify({"error": "No data found"}), 404
-    return jsonify(df.to_dict(orient="records"))
-
-@app.route("/sales/<string:name>", methods=["GET"])
-def get_sales_by_name(name):
-    df = load_sheet()
-    if df is None:
-        return jsonify({"error": "No data found"}), 404
-    row = df[df["NAMA"].str.lower() == name.lower()]
-    if row.empty:
-        return jsonify({"error": "Sales associate not found"}), 404
-    return jsonify(row.to_dict(orient="records")[0])
-
-# --- STEP 5: Run app ---
 if __name__ == "__main__":
-    app.run(debug=True)
+    app.run(host="0.0.0.0", port=5000)
