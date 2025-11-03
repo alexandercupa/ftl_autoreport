@@ -1,14 +1,16 @@
 import os
 import json
-from flask import Flask, jsonify, request
-from flask_cors import CORS
+from flask import Flask, jsonify
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
+from dotenv import load_dotenv
 
-app = Flask(__name__)
-CORS(app)
+# Load environment variables
+load_dotenv("id.env")
 
-# Build credentials dictionary from environment variables
+app = Flask(_name_)
+
+# Build credentials dictionary from .env
 credentials_dict = {
     "type": os.getenv("GOOGLE_TYPE"),
     "project_id": os.getenv("GOOGLE_PROJECT_ID"),
@@ -23,7 +25,10 @@ credentials_dict = {
     "universe_domain": os.getenv("GOOGLE_UNIVERSE_DOMAIN"),
 }
 
+# Create credentials object from JSON
 creds = service_account.Credentials.from_service_account_info(credentials_dict)
+
+# Connect to Google Sheets
 service = build('sheets', 'v4', credentials=creds)
 sheet = service.spreadsheets()
 
@@ -34,64 +39,11 @@ SHEET_NAME = os.getenv("SHEET_NAME")
 def get_sales_data():
     result = sheet.values().get(spreadsheetId=SHEET_ID, range=SHEET_NAME).execute()
     values = result.get('values', [])
-
-    if not values:
-        return jsonify({"error": "No data found"}), 404
-
-    headers = values[0]
-    data = [dict(zip(headers, row)) for row in values[1:]]
-
-    return jsonify(data)
-
-
-@app.route("/api/sales/search/name", methods=["GET"])
-def search_sales_by_name():
-    name = request.args.get('name')
-    if not name:
-        return jsonify({"error": "Name parameter is required"}), 400
-
-    result = sheet.values().get(spreadsheetId=SHEET_ID, range=SHEET_NAME).execute()
-    values = result.get('values', [])
-
-    if not values:
-        return jsonify({"error": "No data found"}), 404
-
-    headers = values[0]
-    filtered_data = [dict(zip(headers, row)) for row in values[1:] if len(row) >= len(headers) and row[headers.index("NAMA")] == name]
-
-    if not filtered_data:
-        return jsonify({"message": f"No data found for name: {name}"}), 404
-
-    return jsonify(filtered_data)
-
-
-@app.route("/api/sales/search/full", methods=["GET"])
-def search_sales_by_name_and_report():
-    name = request.args.get('name')
-    report_name = request.args.get('report_name')
-
-    if not name or not report_name:
-        return jsonify({"error": "Both 'name' and 'report_name' parameters are required"}), 400
-
-    result = sheet.values().get(spreadsheetId=SHEET_ID, range=SHEET_NAME).execute()
-    values = result.get('values', [])
-
-    if not values:
-        return jsonify({"error": "No data found"}), 404
-
-    headers = values[0]
-    filtered_data = [dict(zip(headers, row)) for row in values[1:] if row[headers.index("NAME")] == name and row[headers.index("REPORT_NAME")] == report_name]
-
-    if not filtered_data:
-        return jsonify({"message": f"No data found for name: {name} and report: {report_name}"}), 404
-
-    return jsonify(filtered_data)
-
+    return jsonify(values)
 
 @app.route("/", methods=["GET"])
 def home():
     return jsonify({"status": "Backend Running", "sheet": SHEET_NAME})
 
-
-if __name__ == "__main__":
+if _name_ == "_main_":
     app.run(host="0.0.0.0", port=5000)
