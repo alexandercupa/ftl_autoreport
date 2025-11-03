@@ -1,6 +1,7 @@
 flask
-pandas
-python-dotenv
-google-auth
-google-auth-oauthlib
+flask-cors
 google-api-python-client
+google-auth
+google-auth-httplib2
+google-auth-oauthlib
+python-dotenv
