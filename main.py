@@ -1,6 +1,6 @@
 import os
 import json
-from flask import Flask, jsonify
+from flask import Flask, jsonify, request
 from flask_cors import CORS
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
@@ -27,108 +27,128 @@ credentials_dict = {
     "universe_domain": os.getenv("GOOGLE_UNIVERSE_DOMAIN"),
 }
 
-# Create credentials object from JSON
+# Create credentials for Google Sheets API
 creds = service_account.Credentials.from_service_account_info(credentials_dict)
+service = build("sheets", "v4", credentials=creds)
+sheet_api = service.spreadsheets()
 
-# Connect to Google Sheets
-service = build('sheets', 'v4', credentials=creds)
-sheet = service.spreadsheets()
+# === CONFIG ===
+SHEET_ID = os.getenv("SHEET_ID")  # Master sheet ID
+MASTER_RANGE = "MASTER_DATA!A:P"  # Adjust if needed
 
-SHEET_ID = os.getenv("SHEET_ID")
-SHEET_NAME = os.getenv("SHEET_NAME")
 
-from flask import Flask, request, jsonify
+# ---------------------------------------------
+# UTIL: Fetch seluruh MASTER_DATA
+# ---------------------------------------------
+def fetch_master_data():
+    result = (
+        sheet_api.values()
+        .get(spreadsheetId=SHEET_ID, range=MASTER_RANGE)
+        .execute()
+    )
+    rows = result.get("values", [])
 
+    if not rows or len(rows) < 2:
+        return []
+
+    header = rows[0]
+    data = []
+
+    for row in rows[1:]:
+        row_dict = {}
+        for i, key in enumerate(header):
+            row_dict[key] = row[i] if i < len(row) else ""
+        data.append(row_dict)
+
+    return data
+
+
+# ---------------------------------------------
+# ROUTE: /api/sales  (ambil semua data)
+# ---------------------------------------------
 @app.route("/api/sales", methods=["GET"])
 def get_sales_data():
-    # Mendapatkan data dari Google Sheets
-    result = sheet.values().get(spreadsheetId=SHEET_ID, range=SHEET_NAME).execute()
-    values = result.get('values', [])
-
-    if not values:
-        return jsonify({"error": "No data found"}), 404
-
-    # Ambil baris pertama sebagai header (keys)
-    headers = values[0]
-
-    # Buat list of dictionaries, dimana key adalah header dan value adalah baris-baris berikutnya
-    data = []
-    for row in values[1:]:
-        row_data = {headers[i]: row[i] if i < len(row) else None for i in range(len(headers))}
-        data.append(row_data)
-
-    # Kembalikan data dalam format JSON
-    return jsonify(data)
+    try:
+        data = fetch_master_data()
+        return jsonify(data)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 
+# ---------------------------------------------
+# ROUTE: /api/sales/search  (filter by name)
+# ---------------------------------------------
 @app.route("/api/sales/search", methods=["GET"])
 def search_sales_by_name():
-    # Ambil parameter 'name' dari query string
-    name = request.args.get('name')
-    
-    if not name:
-        return jsonify({"error": "Name parameter is required"}), 400
+    try:
+        name = request.args.get("name", "").strip().upper()
 
-    # Mendapatkan data dari Google Sheets
-    result = sheet.values().get(spreadsheetId=SHEET_ID, range=SHEET_NAME).execute()
-    values = result.get('values', [])
+        data = fetch_master_data()
 
-    if not values:
-        return jsonify({"error": "No data found"}), 404
+        filtered = [
+            row for row in data
+            if row.get("NAMA", "").strip().upper() == name
+        ]
 
-    # Ambil baris pertama sebagai header (keys)
-    headers = values[0]
+        return jsonify(filtered)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
-    # Filter data berdasarkan 'name' yang diberikan
-    filtered_data = []
-    for row in values[1:]:
-        row_data = {headers[i]: row[i] if i < len(row) else None for i in range(len(headers))}
-        if row_data.get("NAMA") == name:
-            filtered_data.append(row_data)
 
-    # Jika tidak ada data yang cocok
-    if not filtered_data:
-        return jsonify({"message": f"No data found for name: {name}"}), 404
+# ---------------------------------------------
+# ROUTE: /api/leaderboard  (AMBIL OVERALL)
+# ---------------------------------------------
+@app.route("/api/leaderboard", methods=["GET"])
+def leaderboard():
+    try:
+        data = fetch_master_data()
 
-    # Kembalikan data dalam format JSON
-    return jsonify(filtered_data)
+        lb = []
 
-@app.route("/api/sales/search", methods=["GET"])
-def search_sales_by_name_and_report():
-    # Ambil parameter 'name' dan 'report_name' dari query string
-    name = request.args.get('name')
-    report_name = request.args.get('report_name')
+        for row in data:
+            rep = row.get("REPORT_NAME", "")
+            if "OVERALL" in rep.upper():
+                nama = row.get("NAMA", "")
+                percent_raw = row.get("SALES_PERCENTAGE", "0")
 
-    if not name or not report_name:
-        return jsonify({"error": "Both 'name' and 'report_name' parameters are required"}), 400
+                # Convert "72,0%" → 72.0
+                try:
+                    percent_clean = float(
+                        percent_raw.replace("%", "").replace(",", ".").strip()
+                    )
+                except:
+                    percent_clean = 0
 
-    # Mendapatkan data dari Google Sheets
-    result = sheet.values().get(spreadsheetId=SHEET_ID, range=SHEET_NAME).execute()
-    values = result.get('values', [])
+                lb.append({
+                    "nama": nama,
+                    "percentage": percent_clean
+                })
 
-    if not values:
-        return jsonify({"error": "No data found"}), 404
+        # sort descending
+        lb_sorted = sorted(lb, key=lambda x: x["percentage"], reverse=True)
 
-    # Ambil baris pertama sebagai header (keys)
-    headers = values[0]
+        return jsonify(lb_sorted)
 
-    # Filter data berdasarkan 'name' dan 'report_name' yang diberikan
-    filtered_data = []
-    for row in values[1:]:
-        row_data = {headers[i]: row[i] if i < len(row) else None for i in range(len(headers))}
-        if row_data.get("NAME") == name and row_data.get("REPORT_NAME") == report_name:
-            filtered_data.append(row_data)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
-    # Jika tidak ada data yang cocok
-    if not filtered_data:
-        return jsonify({"message": f"No data found for name: {name} and report: {report_name}"}), 404
 
-    # Kembalikan data dalam format JSON
-    return jsonify(filtered_data)
-
+# ---------------------------------------------
+# ROOT ROUTE
+# ---------------------------------------------
 @app.route("/", methods=["GET"])
 def home():
-    return jsonify({"status": "Backend Running", "sheet": SHEET_NAME})
+    return jsonify({
+        "status": "Backend Running",
+        "sheet": "MASTER_DATA",
+        "leaderboard": "/api/leaderboard",
+        "sales": "/api/sales",
+        "sales_search": "/api/sales/search"
+    })
 
+
+# ---------------------------------------------
+# RUN LOCAL
+# ---------------------------------------------
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)
