@@ -152,3 +152,24 @@ def home():
 # ---------------------------------------------
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)
+
+# ===========================
+#   AUTH ROUTE (BACKEND)
+# ===========================
+from flask import request
+
+import os
+REPORT_PASSWORD = os.getenv("REPORT_PASSWORD", "")
+
+@app.route("/api/auth", methods=["POST"])
+def check_auth():
+    data = request.get_json(silent=True) or {}
+    pw = data.get("password", "").strip()
+
+    if not pw:
+        return jsonify({"ok": False, "msg": "Password kosong"}), 400
+
+    if pw == REPORT_PASSWORD:
+        return jsonify({"ok": True}), 200
+
+    return jsonify({"ok": False, "msg": "Password salah"}), 401
