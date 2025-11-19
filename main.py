@@ -1,5 +1,6 @@
 import os
 import json
+from functools import wraps
 from flask import Flask, jsonify, request
 from flask_cors import CORS
 from google.oauth2 import service_account
@@ -11,6 +12,20 @@ load_dotenv("id.env")
 
 app = Flask(__name__)
 CORS(app)
+
+# --- SECURITY CONFIG ---
+API_KEY = os.getenv("API_KEY", "JAKFQ25!!")     # Default fallback (optional)
+REPORT_PASSWORD = os.getenv("REPORT_PASSWORD", "")
+
+def require_api_key(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        key = request.headers.get("x-api-key")
+        if not key or key != API_KEY:
+            return jsonify({"error": "Unauthorized"}), 401
+        return f(*args, **kwargs)
+    return decorated
+
 
 # Build credentials dictionary from .env
 credentials_dict = {
@@ -33,8 +48,8 @@ service = build("sheets", "v4", credentials=creds)
 sheet_api = service.spreadsheets()
 
 # === CONFIG ===
-SHEET_ID = os.getenv("SHEET_ID")  # Master sheet ID
-MASTER_RANGE = "MASTER_DATA!A:P"  # Adjust if needed
+SHEET_ID = os.getenv("SHEET_ID")
+MASTER_RANGE = "MASTER_DATA!A:P"
 
 
 # ---------------------------------------------
@@ -67,6 +82,7 @@ def fetch_master_data():
 # ROUTE: /api/sales  (ambil semua data)
 # ---------------------------------------------
 @app.route("/api/sales", methods=["GET"])
+@require_api_key
 def get_sales_data():
     try:
         data = fetch_master_data()
@@ -79,6 +95,7 @@ def get_sales_data():
 # ROUTE: /api/sales/search  (filter by name)
 # ---------------------------------------------
 @app.route("/api/sales/search", methods=["GET"])
+@require_api_key
 def search_sales_by_name():
     try:
         name = request.args.get("name", "").strip().upper()
@@ -99,6 +116,7 @@ def search_sales_by_name():
 # ROUTE: /api/leaderboard  (AMBIL OVERALL)
 # ---------------------------------------------
 @app.route("/api/leaderboard", methods=["GET"])
+@require_api_key
 def leaderboard():
     try:
         data = fetch_master_data()
@@ -124,9 +142,7 @@ def leaderboard():
                     "percentage": percent_clean
                 })
 
-        # sort descending
         lb_sorted = sorted(lb, key=lambda x: x["percentage"], reverse=True)
-
         return jsonify(lb_sorted)
 
     except Exception as e:
@@ -140,27 +156,18 @@ def leaderboard():
 def home():
     return jsonify({
         "status": "Backend Running",
-        "sheet": "MASTER_DATA",
-        "leaderboard": "/api/leaderboard",
-        "sales": "/api/sales",
-        "sales_search": "/api/sales/search"
+        "protected_routes": [
+            "/api/leaderboard",
+            "/api/sales",
+            "/api/sales/search"
+        ],
+        "note": "All API routes require API_KEY"
     })
 
 
 # ---------------------------------------------
-# RUN LOCAL
+# AUTH ROUTE (PUBLIC)
 # ---------------------------------------------
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000)
-
-# ===========================
-#   AUTH ROUTE (BACKEND)
-# ===========================
-from flask import request
-
-import os
-REPORT_PASSWORD = os.getenv("REPORT_PASSWORD", "")
-
 @app.route("/api/auth", methods=["POST"])
 def check_auth():
     data = request.get_json(silent=True) or {}
@@ -173,3 +180,10 @@ def check_auth():
         return jsonify({"ok": True}), 200
 
     return jsonify({"ok": False, "msg": "Password salah"}), 401
+
+
+# ---------------------------------------------
+# RUN LOCAL (ignored on Vercel)
+# ---------------------------------------------
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=5000)
