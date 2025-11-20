@@ -1,20 +1,25 @@
 import os
 import json
+from functools import wraps
 from flask import Flask, jsonify, request
 from flask_cors import CORS
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from dotenv import load_dotenv
 
-# Load environment variables
+# Load environment variables (ignored on Vercel, ok locally)
 load_dotenv("id.env")
 
 app = Flask(__name__)
 CORS(app)
 
+# ==========================
+#   SECURITY: API KEY
+# ==========================
 API_KEY = os.getenv("API_KEY", "")
 
 def require_api_key(f):
+    @wraps(f)
     def wrapper(*args, **kwargs):
         key = request.headers.get("x-api-key")
         if not key or key != API_KEY:
@@ -22,12 +27,15 @@ def require_api_key(f):
         return f(*args, **kwargs)
     return wrapper
 
-# Build credentials dictionary from .env
+
+# ==========================
+#   GOOGLE CREDENTIALS
+# ==========================
 credentials_dict = {
     "type": os.getenv("GOOGLE_TYPE"),
     "project_id": os.getenv("GOOGLE_PROJECT_ID"),
     "private_key_id": os.getenv("GOOGLE_PRIVATE_KEY_ID"),
-    "private_key": os.getenv("GOOGLE_PRIVATE_KEY").replace('\\n', '\n'),
+    "private_key": os.getenv("GOOGLE_PRIVATE_KEY", "").replace('\\n', '\n'),
     "client_email": os.getenv("GOOGLE_CLIENT_EMAIL"),
     "client_id": os.getenv("GOOGLE_CLIENT_ID"),
     "auth_uri": os.getenv("GOOGLE_AUTH_URI"),
@@ -37,14 +45,15 @@ credentials_dict = {
     "universe_domain": os.getenv("GOOGLE_UNIVERSE_DOMAIN"),
 }
 
-# Create credentials for Google Sheets API
 creds = service_account.Credentials.from_service_account_info(credentials_dict)
 service = build("sheets", "v4", credentials=creds)
 sheet_api = service.spreadsheets()
 
-# === CONFIG ===
-SHEET_ID = os.getenv("SHEET_ID")  # Master sheet ID
-MASTER_RANGE = "MASTER_DATA!A:P"  # Adjust if needed
+# ==========================
+#   CONFIG
+# ==========================
+SHEET_ID = os.getenv("SHEET_ID")
+MASTER_RANGE = "MASTER_DATA!A:P"
 
 
 # ---------------------------------------------
