@@ -12,6 +12,16 @@ load_dotenv("id.env")
 app = Flask(__name__)
 CORS(app)
 
+API_KEY = os.getenv("API_KEY", "")
+
+def require_api_key(f):
+    def wrapper(*args, **kwargs):
+        key = request.headers.get("x-api-key")
+        if not key or key != API_KEY:
+            return jsonify({"error": "Unauthorized"}), 401
+        return f(*args, **kwargs)
+    return wrapper
+
 # Build credentials dictionary from .env
 credentials_dict = {
     "type": os.getenv("GOOGLE_TYPE"),
@@ -67,6 +77,7 @@ def fetch_master_data():
 # ROUTE: /api/sales  (ambil semua data)
 # ---------------------------------------------
 @app.route("/api/sales", methods=["GET"])
+@require_api_key
 def get_sales_data():
     try:
         data = fetch_master_data()
@@ -79,6 +90,7 @@ def get_sales_data():
 # ROUTE: /api/sales/search  (filter by name)
 # ---------------------------------------------
 @app.route("/api/sales/search", methods=["GET"])
+@require_api_key
 def search_sales_by_name():
     try:
         name = request.args.get("name", "").strip().upper()
@@ -99,6 +111,7 @@ def search_sales_by_name():
 # ROUTE: /api/leaderboard  (AMBIL OVERALL)
 # ---------------------------------------------
 @app.route("/api/leaderboard", methods=["GET"])
+@require_api_key
 def leaderboard():
     try:
         data = fetch_master_data()
@@ -124,9 +137,7 @@ def leaderboard():
                     "percentage": percent_clean
                 })
 
-        # sort descending
         lb_sorted = sorted(lb, key=lambda x: x["percentage"], reverse=True)
-
         return jsonify(lb_sorted)
 
     except Exception as e:
