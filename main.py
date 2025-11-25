@@ -54,10 +54,11 @@ sheet_api = service.spreadsheets()
 # ==========================
 SHEET_ID = os.getenv("SHEET_ID")
 MASTER_RANGE = "MASTER_DATA!A:P"
+MASTER_LM_RANGE = "MASTER_DATALM!A:P"   # <--- ADD THIS
 
 
 # ---------------------------------------------
-# UTIL: Fetch seluruh MASTER_DATA
+# UTIL: Fetch MASTER_DATA
 # ---------------------------------------------
 def fetch_master_data():
     result = (
@@ -66,13 +67,35 @@ def fetch_master_data():
         .execute()
     )
     rows = result.get("values", [])
-
     if not rows or len(rows) < 2:
         return []
 
     header = rows[0]
     data = []
+    for row in rows[1:]:
+        row_dict = {}
+        for i, key in enumerate(header):
+            row_dict[key] = row[i] if i < len(row) else ""
+        data.append(row_dict)
 
+    return data
+
+
+# ---------------------------------------------
+# UTIL: Fetch MASTER_DATALM (LAST MONTH)
+# ---------------------------------------------
+def fetch_master_data_lm():
+    result = (
+        sheet_api.values()
+        .get(spreadsheetId=SHEET_ID, range=MASTER_LM_RANGE)
+        .execute()
+    )
+    rows = result.get("values", [])
+    if not rows or len(rows) < 2:
+        return []
+
+    header = rows[0]
+    data = []
     for row in rows[1:]:
         row_dict = {}
         for i, key in enumerate(header):
@@ -103,17 +126,49 @@ def get_sales_data():
 def search_sales_by_name():
     try:
         name = request.args.get("name", "").strip().upper()
-
         data = fetch_master_data()
 
         filtered = [
             row for row in data
             if row.get("NAMA", "").strip().upper() == name
         ]
-
         return jsonify(filtered)
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+
+
+# ---------------------------------------------
+# ROUTE: /api/sales_lm  (AMBIL DATA BULAN LALU)
+# ---------------------------------------------
+@app.route("/api/sales_lm", methods=["GET"])
+@require_api_key
+def get_sales_data_lm():
+    try:
+        data = fetch_master_data_lm()
+        return jsonify(data)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+# ---------------------------------------------
+# ROUTE: /api/sales_lm/search  (FILTER BY NAME LM)
+# ---------------------------------------------
+@app.route("/api/sales_lm/search", methods=["GET"])
+@require_api_key
+def search_sales_by_name_lm():
+    try:
+        name = request.args.get("name", "").strip().upper()
+        data = fetch_master_data_lm()
+
+        filtered = [
+            row for row in data
+            if row.get("NAMA", "").strip().upper() == name
+        ]
+        return jsonify(filtered)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
 
 
 # ---------------------------------------------
@@ -126,14 +181,41 @@ def leaderboard():
         data = fetch_master_data()
 
         lb = []
+        for row in data:
+            rep = row.get("REPORT_NAME", "")
+            if "OVERALL" in rep.upper():
+                nama = row.get("NAMA", "")
+                percent_raw = row.get("SALES_PERCENTAGE", "0")
+                try:
+                    percent_clean = float(
+                        percent_raw.replace("%", "").replace(",", ".").strip()
+                    )
+                except:
+                    percent_clean = 0
+                lb.append({"nama": nama, "percentage": percent_clean})
 
+        lb_sorted = sorted(lb, key=lambda x: x["percentage"], reverse=True)
+        return jsonify(lb_sorted)
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+# ---------------------------------------------
+# ROUTE: /api/leaderboard_lm  (AMBIL OVERALL BULAN LALU)
+# ---------------------------------------------
+@app.route("/api/leaderboard_lm", methods=["GET"])
+@require_api_key
+def leaderboard_lm():
+    try:
+        data = fetch_master_data_lm()
+
+        lb = []
         for row in data:
             rep = row.get("REPORT_NAME", "")
             if "OVERALL" in rep.upper():
                 nama = row.get("NAMA", "")
                 percent_raw = row.get("SALES_PERCENTAGE", "0")
 
-                # Convert "72,0%" → 72.0
                 try:
                     percent_clean = float(
                         percent_raw.replace("%", "").replace(",", ".").strip()
@@ -152,7 +234,6 @@ def leaderboard():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-
 # ---------------------------------------------
 # ROOT ROUTE
 # ---------------------------------------------
@@ -160,10 +241,13 @@ def leaderboard():
 def home():
     return jsonify({
         "status": "Backend Running",
-        "sheet": "MASTER_DATA",
+        "sheet_active": "MASTER_DATA",
+        "sheet_last_month": "MASTER_DATALM",
         "leaderboard": "/api/leaderboard",
-        "sales": "/api/sales",
-        "sales_search": "/api/sales/search"
+        "sales_active": "/api/sales",
+        "sales_active_search": "/api/sales/search",
+        "sales_lastmonth": "/api/sales_lm",
+        "sales_lastmonth_search": "/api/sales_lm/search"
     })
 
 
@@ -173,12 +257,11 @@ def home():
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)
 
+
+
 # ===========================
 #   AUTH ROUTE (BACKEND)
 # ===========================
-from flask import request
-
-import os
 REPORT_PASSWORD = os.getenv("REPORT_PASSWORD", "")
 
 @app.route("/api/auth", methods=["POST"])
