@@ -54,7 +54,7 @@ sheet_api = service.spreadsheets()
 # ==========================
 SHEET_ID = os.getenv("SHEET_ID")
 MASTER_RANGE = "MASTER_DATA!A:P"
-MASTER_LM_RANGE = "MASTER_DATALM!A:P"   # <--- ADD THIS
+MASTER_LM_RANGE = "MASTER_DATALM!A:P"   # <--- IMPORTANT
 
 
 # ---------------------------------------------
@@ -71,14 +71,10 @@ def fetch_master_data():
         return []
 
     header = rows[0]
-    data = []
-    for row in rows[1:]:
-        row_dict = {}
-        for i, key in enumerate(header):
-            row_dict[key] = row[i] if i < len(row) else ""
-        data.append(row_dict)
-
-    return data
+    return [
+        {header[i]: row[i] if i < len(row) else "" for i in range(len(header))}
+        for row in rows[1:]
+    ]
 
 
 # ---------------------------------------------
@@ -95,31 +91,26 @@ def fetch_master_data_lm():
         return []
 
     header = rows[0]
-    data = []
-    for row in rows[1:]:
-        row_dict = {}
-        for i, key in enumerate(header):
-            row_dict[key] = row[i] if i < len(row) else ""
-        data.append(row_dict)
-
-    return data
+    return [
+        {header[i]: row[i] if i < len(row) else "" for i in range(len(header))}
+        for row in rows[1:]
+    ]
 
 
 # ---------------------------------------------
-# ROUTE: /api/sales  (ambil semua data)
+# ROUTE: /api/sales  (bulan aktif)
 # ---------------------------------------------
 @app.route("/api/sales", methods=["GET"])
 @require_api_key
 def get_sales_data():
     try:
-        data = fetch_master_data()
-        return jsonify(data)
+        return jsonify(fetch_master_data())
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
 
 # ---------------------------------------------
-# ROUTE: /api/sales/search  (filter by name)
+# ROUTE: /api/sales/search  (bulan aktif)
 # ---------------------------------------------
 @app.route("/api/sales/search", methods=["GET"])
 @require_api_key
@@ -127,112 +118,92 @@ def search_sales_by_name():
     try:
         name = request.args.get("name", "").strip().upper()
         data = fetch_master_data()
-
-        filtered = [
-            row for row in data
-            if row.get("NAMA", "").strip().upper() == name
-        ]
-        return jsonify(filtered)
+        return jsonify([row for row in data if row.get("NAMA", "").strip().upper() == name])
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
 
 
 # ---------------------------------------------
-# ROUTE: /api/sales_lm  (AMBIL DATA BULAN LALU)
+# ROUTE: /api/sales_lm  (BULAN LALU)
 # ---------------------------------------------
 @app.route("/api/sales_lm", methods=["GET"])
 @require_api_key
-def get_sales_data_lm():
+def get_sales_lm():
     try:
-        data = fetch_master_data_lm()
-        return jsonify(data)
+        return jsonify(fetch_master_data_lm())
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
 
 # ---------------------------------------------
-# ROUTE: /api/sales_lm/search  (FILTER BY NAME LM)
+# ROUTE: /api/sales_lm/search  (BULAN LALU)
 # ---------------------------------------------
 @app.route("/api/sales_lm/search", methods=["GET"])
 @require_api_key
-def search_sales_by_name_lm():
+def search_sales_lm():
     try:
         name = request.args.get("name", "").strip().upper()
         data = fetch_master_data_lm()
-
-        filtered = [
-            row for row in data
-            if row.get("NAMA", "").strip().upper() == name
-        ]
-        return jsonify(filtered)
+        return jsonify([row for row in data if row.get("NAMA", "").strip().upper() == name])
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
 
 
 # ---------------------------------------------
-# ROUTE: /api/leaderboard  (AMBIL OVERALL)
+# ROUTE: /api/leaderboard (ACTIVE)
 # ---------------------------------------------
 @app.route("/api/leaderboard", methods=["GET"])
 @require_api_key
 def leaderboard():
     try:
         data = fetch_master_data()
-
         lb = []
+
         for row in data:
             rep = row.get("REPORT_NAME", "")
             if "OVERALL" in rep.upper():
-                nama = row.get("NAMA", "")
-                percent_raw = row.get("SALES_PERCENTAGE", "0")
+                raw = row.get("SALES_PERCENTAGE", "0")
                 try:
-                    percent_clean = float(
-                        percent_raw.replace("%", "").replace(",", ".").strip()
-                    )
+                    pct = float(raw.replace("%", "").replace(",", "."))
                 except:
-                    percent_clean = 0
-                lb.append({"nama": nama, "percentage": percent_clean})
+                    pct = 0
+                lb.append({"nama": row.get("NAMA", ""), "percentage": pct})
 
-        lb_sorted = sorted(lb, key=lambda x: x["percentage"], reverse=True)
-        return jsonify(lb_sorted)
+        return jsonify(sorted(lb, key=lambda x: x["percentage"], reverse=True))
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+
+
 # ---------------------------------------------
-# ROUTE: /api/leaderboard_lm  (AMBIL OVERALL BULAN LALU)
+# ROUTE: /api/leaderboard_lm (LAST MONTH)
 # ---------------------------------------------
 @app.route("/api/leaderboard_lm", methods=["GET"])
 @require_api_key
 def leaderboard_lm():
     try:
         data = fetch_master_data_lm()
-
         lb = []
+
         for row in data:
             rep = row.get("REPORT_NAME", "")
             if "OVERALL" in rep.upper():
-                nama = row.get("NAMA", "")
-                percent_raw = row.get("SALES_PERCENTAGE", "0")
-
+                raw = row.get("SALES_PERCENTAGE", "0")
                 try:
-                    percent_clean = float(
-                        percent_raw.replace("%", "").replace(",", ".").strip()
-                    )
+                    pct = float(raw.replace("%", "").replace(",", "."))
                 except:
-                    percent_clean = 0
+                    pct = 0
+                lb.append({"nama": row.get("NAMA", ""), "percentage": pct})
 
-                lb.append({
-                    "nama": nama,
-                    "percentage": percent_clean
-                })
-
-        lb_sorted = sorted(lb, key=lambda x: x["percentage"], reverse=True)
-        return jsonify(lb_sorted)
+        return jsonify(sorted(lb, key=lambda x: x["percentage"], reverse=True))
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+
 
 # ---------------------------------------------
 # ROOT ROUTE
@@ -243,20 +214,13 @@ def home():
         "status": "Backend Running",
         "sheet_active": "MASTER_DATA",
         "sheet_last_month": "MASTER_DATALM",
-        "leaderboard": "/api/leaderboard",
         "sales_active": "/api/sales",
         "sales_active_search": "/api/sales/search",
         "sales_lastmonth": "/api/sales_lm",
-        "sales_lastmonth_search": "/api/sales_lm/search"
+        "sales_lastmonth_search": "/api/sales_lm/search",
+        "leaderboard": "/api/leaderboard",
+        "leaderboard_lastmonth": "/api/leaderboard_lm"
     })
-
-
-# ---------------------------------------------
-# RUN LOCAL
-# ---------------------------------------------
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000)
-
 
 
 # ===========================
@@ -266,13 +230,17 @@ REPORT_PASSWORD = os.getenv("REPORT_PASSWORD", "")
 
 @app.route("/api/auth", methods=["POST"])
 def check_auth():
-    data = request.get_json(silent=True) or {}
-    pw = data.get("password", "").strip()
-
+    pw = (request.get_json(silent=True) or {}).get("password", "").strip()
     if not pw:
         return jsonify({"ok": False, "msg": "Password kosong"}), 400
-
     if pw == REPORT_PASSWORD:
         return jsonify({"ok": True}), 200
-
     return jsonify({"ok": False, "msg": "Password salah"}), 401
+
+
+
+# ---------------------------------------------
+# RUN LOCAL
+# ---------------------------------------------
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=5000)
